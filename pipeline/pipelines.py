@@ -10,10 +10,10 @@ class MysqlPipeline:
     _update = "UPDATE proxy_pool SET location=%s, isp=%s, proxy_type=%s, react=%s, valid_time=%s, usable=1 " \
               "WHERE ip = %s and port = %s"
 
-    _page = "SELECT id,port,ip FROM proxy_pool " \
-            "WHERE id >= (select id from proxy_pool where usable=1 limit %s,1) limit %s"
+    _page = "SELECT port,ip FROM proxy_pool " \
+            "WHERE id >= (SELECT id FROM proxy_pool WHERE usable=1 LIMIT %s,1) AND usable=1 LIMIT %s"
 
-    _valid = "UPDATE proxy_pool SET usable=%s, react=%s, valid_time=%s " \
+    _valid = "UPDATE proxy_pool SET react=%s, valid_time=%s " \
              "WHERE ip = %s and port = %s"
 
     def __init__(self, **kwargs):
@@ -102,16 +102,23 @@ class MysqlPipeline:
             finally:
                 await self._pool.release(conn)
 
-    # async def process_valid_data(self, valid_data):
-    #
-    #     if self._pool:
-    #         conn = await self._pool.acquire()
-    #         try:
-    #             cursor = await conn.cursor(aiomysql.DictCursor)
-    #             try:
-    #                 for vd in valid_data:
-    #
-    #             finally:
-    #                 await cursor.close()
-    #         finally:
-    #             await self._pool.release(conn)
+    async def process_valid_data(self, valid_data):
+
+        if self._pool:
+            conn = await self._pool.acquire()
+            try:
+                cursor = await conn.cursor(aiomysql.DictCursor)
+                try:
+                    await cursor.execute(self._valid,
+                                         (valid_data.get("react", None),
+                                          valid_data.get("valid_time", None),
+                                          valid_data.get("ip", None),
+                                          valid_data.get("port", None)))
+                except Exception as e:
+                    raise e
+                else:
+                    await conn.commit()
+                finally:
+                    await cursor.close()
+            finally:
+                await self._pool.release(conn)

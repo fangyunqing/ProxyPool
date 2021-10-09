@@ -35,12 +35,20 @@ class Manager:
                     cls = moudleutil.get_cls(pipeline_info)
                     params = pp.get("params", None)
                     o = cls(**params)
+                    primary = pp.get("primary", None)
                     self._pipelines.append(o)
-                    o.main = True
+                    if primary:
+                        o.primary = True
+                    else:
+                        o.primary = False
                 except AttributeError:
                     pass
                 except TypeError:
                     pass
+
+            if len(self._pipelines) > 0:
+                if all([not p.primary for p in self._pipelines]):
+                    self._pipelines[0].primary = True
 
     def _init_proxys(self):
         if "PROXYS" in self.settings:
@@ -52,23 +60,12 @@ class Manager:
                     if cls is not None:
                         url = p.get("url", None)
                         baseurl = p.get("baseurl", None)
-                        primary = p.get("primary", None)
                         o = cls(url=url, baseurl=baseurl, manager=self)
                         self._proxys.append(o)
-
-                        if primary:
-                            o.primary = True
-                        else:
-                            o.primary = False
-
                 except AttributeError:
                     pass
                 except TypeError:
                     pass
-
-            if len(self._proxys) > 0:
-                if all([not p.primary for p in self._proxys]):
-                    self._proxys[0].primary = True
 
     def _open_pipeline(self):
 
@@ -139,10 +136,10 @@ class Manager:
             if hasattr(pp, "process_item"):
                 await pp.process_item(item)
 
-    async def handler_valid_data(self, valid_data):
+    async def process_valid_data(self, valid_data):
         for pp in self._pipelines:
-            if hasattr(pp, "handler_valid_data"):
-                await pp.handler_valid_data(valid_data)
+            if hasattr(pp, "process_valid_data"):
+                await pp.process_valid_data(valid_data)
 
     def headers(self):
 
@@ -166,3 +163,4 @@ class Manager:
 if __name__ == "__main__":
     maneger = Manager()
     maneger.run_fetch()
+    maneger.run_valid()
