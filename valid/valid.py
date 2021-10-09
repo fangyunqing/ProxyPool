@@ -51,7 +51,8 @@ class ProxyValid:
                                                  proxy="http://" + ip + ":" + port,
                                                  verify_ssl=False,
                                                  timeout=6,
-                                                 cookies=None)
+                                                 cookies=None,
+                                                 headers=self._manager.headers())
                 response.close()
 
             valid_data = {"ip": ip,
@@ -61,7 +62,7 @@ class ProxyValid:
 
         except (asyncio.exceptions.TimeoutError, ConnectionRefusedError,
                 aiohttp.ClientProxyConnectionError, aiohttp.ClientOSError,
-                aiohttp.ServerDisconnectedError):
+                aiohttp.ServerDisconnectedError, aiohttp.ClientHttpProxyError):
             valid_data = {"ip": ip,
                           "port": port,
                           "react": "TIMEOUT",

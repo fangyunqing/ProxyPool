@@ -145,7 +145,7 @@ class Manager:
 
         uas = self.settings.get("USER_AGENTS", None)
 
-        if not uas:
+        if uas:
             headers = {
                 "User-Agent": random.choice(uas),
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -162,5 +162,4 @@ class Manager:
 
 if __name__ == "__main__":
     maneger = Manager()
-    maneger.run_fetch()
     maneger.run_valid()
