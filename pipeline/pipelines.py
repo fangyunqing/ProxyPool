@@ -16,6 +16,8 @@ class MysqlPipeline:
     _valid = "UPDATE proxy_pool SET react=%s, valid_time=%s " \
              "WHERE ip = %s and port = %s"
 
+    _count = "SELECT COUNT(*) count FROM proxy_pool WHERE react != 'TIMEOUT'"
+
     def __init__(self, **kwargs):
 
         self._host = kwargs.get("host", None)
@@ -28,21 +30,23 @@ class MysqlPipeline:
 
     async def open(self):
 
-        self._pool = await aiomysql.create_pool(
-            minsize=5,
-            maxsize=10,
-            host=self._host,
-            port=self._port,
-            db=self._db,
-            user=self._user,
-            password=self._password,
-            autocommit=False
-        )
+        if self._pool is None:
+            self._pool = await aiomysql.create_pool(
+                minsize=5,
+                maxsize=10,
+                host=self._host,
+                port=self._port,
+                db=self._db,
+                user=self._user,
+                password=self._password,
+                autocommit=False
+            )
 
     async def close(self):
 
         if self._pool is not None:
-            self._pool.close()
+            await self._pool.close()
+            self._pool = None
 
     async def process_item(self, item):
 
@@ -118,6 +122,21 @@ class MysqlPipeline:
                     raise e
                 else:
                     await conn.commit()
+                finally:
+                    await cursor.close()
+            finally:
+                await self._pool.release(conn)
+
+    async def count(self):
+
+        if self._pool:
+
+            conn = await self._pool.acquire()
+            try:
+                cursor = await conn.cursor(aiomysql.DictCursor)
+                try:
+                    await cursor.execute(self._count)
+                    return await cursor.fetchall()
                 finally:
                     await cursor.close()
             finally:

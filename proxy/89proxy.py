@@ -26,13 +26,9 @@ class EightyNineProxy(AbstractProxy):
             yield self.baseurl + "/" + next_url
 
 
-
-
-
 if __name__ == "__main__":
     import asyncio
 
     loop = asyncio.get_event_loop()
     a = EightyNineProxy(url="https://www.89ip.cn/", manager=None)
     loop.run_until_complete(a.begin())
-

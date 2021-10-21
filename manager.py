@@ -4,6 +4,8 @@ from utils import moudleutil
 import asyncio
 import random
 from valid.valid import ProxyValid
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 
 class Manager:
@@ -14,41 +16,32 @@ class Manager:
     def __init__(self):
         self.state = self._PENDING
         self.settings = {}
-        self._pipelines = []
         self._proxys = []
         for key in settings.__dict__:
             if isinstance(key, str) and not key.startswith("__"):
                 self.settings[key] = settings.__dict__[key]
 
-        self._init_pipelines()
+        self._valid = None
+        self._pipeline = None
+        self._thread_pool = None
+        self._valid_future = None
+        self._fetch_future = None
+        self._start = False
+
+        self._init_pipeline()
         self._init_proxys()
         self._lock = threading.Lock()
-        self._valid = None
-        self._primary_pipeline = None
 
-    def _init_pipelines(self):
-        if "PIPELINES" in self.settings:
-            pipelines = self.settings["PIPELINES"]
-            for pp in pipelines:
-                try:
-                    pipeline_info = pp.get("object", None)
-                    cls = moudleutil.get_cls(pipeline_info)
-                    params = pp.get("params", None)
-                    o = cls(**params)
-                    primary = pp.get("primary", None)
-                    self._pipelines.append(o)
-                    if primary:
-                        o.primary = True
-                    else:
-                        o.primary = False
-                except AttributeError:
-                    pass
-                except TypeError:
-                    pass
-
-            if len(self._pipelines) > 0:
-                if all([not p.primary for p in self._pipelines]):
-                    self._pipelines[0].primary = True
+    def _init_pipeline(self):
+        if "PIPELINE" in self.settings:
+            pp = self.settings["PIPELINE"]
+            try:
+                pipeline_info = pp.get("object", None)
+                cls = moudleutil.get_cls(pipeline_info)
+                params = pp.get("params", None)
+                self._pipeline = cls(**params)
+            except (AttributeError, TypeError):
+                pass
 
     def _init_proxys(self):
         if "PROXYS" in self.settings:
@@ -70,28 +63,26 @@ class Manager:
     def _open_pipeline(self):
 
         tasks = []
-
-        for pp in self._pipelines:
-            if hasattr(pp, "open"):
-                tasks.append(pp.open())
-
-        if len(tasks) > 0:
+        if hasattr(self._pipeline, "open"):
+            #    tasks.append(self._pipeline.open())
             loop = asyncio.get_event_loop()
-            loop.run_until_complete(asyncio.wait(tasks))
+            loop.run_until_complete(self._pipeline.open())
 
     def _close_pipeline(self):
 
         tasks = []
-
-        for pp in self._pipelines:
-            if hasattr(pp, "close"):
-                tasks.append(pp.close())
-
-        if len(tasks) > 0:
+        if hasattr(self._pipeline, "close"):
+            tasks.append(self._pipeline.close())
             loop = asyncio.get_event_loop()
             loop.run_until_complete(asyncio.wait(tasks))
 
     def run_fetch(self):
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError as e:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
         with self._lock:
 
@@ -104,25 +95,25 @@ class Manager:
                 if tasks is not None and len(tasks) > 0:
                     loop = asyncio.get_event_loop()
                     loop.run_until_complete(asyncio.wait(tasks))
+
             finally:
                 self._close_pipeline()
                 self.state = self._PENDING
 
     def run_valid(self):
 
-        with self._lock:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError as e:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
+        with self._lock:
             assert self.state == self._PENDING
             self.state = self._FETCHING
 
-            self._open_pipeline()
             try:
-
-                if self._primary_pipeline is None:
-                    for p in self._pipelines:
-                        if p.primary:
-                            self._primary_pipeline = p
-
+                self._open_pipeline()
                 if self._valid is None:
                     self._valid = ProxyValid(self)
 
@@ -132,17 +123,18 @@ class Manager:
                 self.state = self._PENDING
 
     async def process_item(self, item):
-        for pp in self._pipelines:
-            if hasattr(pp, "process_item"):
-                await pp.process_item(item)
+        if hasattr(self._pipeline, "process_item"):
+            await self._pipeline.process_item(item)
 
     async def process_valid_data(self, valid_data):
-        for pp in self._pipelines:
-            if hasattr(pp, "process_valid_data"):
-                await pp.process_valid_data(valid_data)
+        if hasattr(self._pipeline, "process_valid_data"):
+            await self._pipeline.process_valid_data(valid_data)
 
     def headers(self):
-
+        """
+        移出去
+        :return:
+        """
         uas = self.settings.get("USER_AGENTS", None)
 
         if uas:
@@ -156,10 +148,57 @@ class Manager:
             return headers
 
     async def query(self, page_no, page_size):
-        if hasattr(self._primary_pipeline, "query"):
-            return await self._primary_pipeline.query(page_no, page_size)
+        if hasattr(self._pipeline, "query"):
+            return await self._pipeline.query(page_no, page_size)
+
+    def run(self):
+
+        valid_time = 60 * 60
+        fetch_time = 4 * 60 * 60
+        start_time = time.time()
+        next_valid_time = start_time + valid_time
+        next_fetch_time = start_time + fetch_time
+
+        while self._start:
+            time.sleep(2)
+            end_time = time.time()
+
+            if self._valid_future is None:
+                if next_fetch_time <= end_time:
+                    next_valid_time += valid_time
+                    self._valid_future = self._thread_pool.submit(self.run_valid)
+            else:
+                if self._valid_future.done():
+                    self._valid_future = None
+
+            if self._fetch_future is None:
+                if next_valid_time <= end_time:
+                    next_fetch_time += fetch_time
+                    self._fetch_future = self._thread_pool.submit(self.run_fetch)
+            else:
+                if self._fetch_future.done():
+                    self._fetch_future = None
+
+    def start(self):
+
+        if not self._start:
+            if self._thread_pool is None:
+                self._thread_pool = ThreadPoolExecutor(max_workers=3)
+
+            self._start = True
+            self._thread_pool.submit(self.run)
+
+    def end(self):
+
+        if self._start:
+            self._start = False
+            self._thread_pool.shutdown()
+
+    def __del__(self):
+        self.end()
 
 
 if __name__ == "__main__":
     maneger = Manager()
-    maneger.run_valid()
+    maneger.start()
+    maneger.end()
