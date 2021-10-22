@@ -32,9 +32,6 @@ class Manager:
         self._init_proxys()
         self._lock = threading.Lock()
 
-    def __del__(self):
-        self.end()
-
     def _init_pipeline(self):
         if "PIPELINE" in self.settings:
             pp = self.settings["PIPELINE"]
@@ -205,6 +202,7 @@ class Manager:
         if self._start:
             self._start = False
             self._thread_pool.shutdown()
+            self._thread_pool = None
 
     def random(self):
 
@@ -233,4 +231,7 @@ class Manager:
 
 if __name__ == "__main__":
     maneger = Manager()
-    print(maneger.random())
+    maneger.start()
+    maneger.end()
+    maneger.start()
+    maneger.end()
