@@ -1,4 +1,71 @@
 import aiomysql
+from abc import ABCMeta, abstractmethod
+
+
+class AbstractPipeline(metaclass=ABCMeta):
+
+    @abstractmethod
+    async def open(self):
+        """
+        打开管道
+        """
+        pass
+
+    @abstractmethod
+    async def close(self):
+        """
+        关闭管道
+        """
+        pass
+
+    @abstractmethod
+    async def process_item(self):
+        """
+        处理item 可以保存数据库 redis 文件文件
+        """
+        pass
+
+    @abstractmethod
+    async def query(self, page_no, page_size):
+        """
+        分页查询
+        """
+        pass
+
+    @abstractmethod
+    async def process_valid_data(self, valid_data):
+        """
+        处理验证完的数据 valid_data 是一个字典 包含 ip port react valid_item
+        """
+        pass
+
+    @abstractmethod
+    async def count(self):
+        """
+        返回已经验证且响应时间是有效的个数
+        """
+        pass
+
+    @abstractmethod
+    async def random(self):
+        """
+        随机返回一条已经验证且有效的 ip 和 port
+        """
+        pass
+
+    @abstractmethod
+    async def delete_invalid(self):
+        """
+        删除无效的数据
+        """
+        pass
+
+    @abstractmethod
+    async def update_valid(self):
+        """
+        未验证修改为已验证
+        """
+        pass
 
 
 class MysqlPipeline:
@@ -18,7 +85,7 @@ class MysqlPipeline:
     _valid = "UPDATE proxy_pool SET react=%s, valid_time=%s " \
              "WHERE ip = %s and port = %s"
 
-    _count = "SELECT COUNT(*) count FROM proxy_pool WHERE react != 'TIMEOUT'"
+    _count = "SELECT COUNT(*) count FROM proxy_pool WHERE react != 'INVALID' and valid = 1"
 
     _random = "SELECT * FROM proxy_pool AS t1 " \
               "JOIN (SELECT ROUND(RAND() * ((SELECT MAX(id) FROM proxy_pool)-(SELECT MIN(id) FROM proxy_pool))+" \
