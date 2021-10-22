@@ -32,6 +32,9 @@ class Manager:
         self._init_proxys()
         self._lock = threading.Lock()
 
+    def __del__(self):
+        self.end()
+
     def _init_pipeline(self):
         if "PIPELINE" in self.settings:
             pp = self.settings["PIPELINE"]
@@ -78,49 +81,58 @@ class Manager:
 
     def run_fetch(self):
 
+        # noinspection PyBroadException
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError as e:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        with self._lock:
-
-            assert self.state == self._PENDING
-            self.state = self._FETCHING
-
-            self._open_pipeline()
+            # 如果没有事件循环 则创建事件循环
             try:
-                tasks = [p.begin() for p in self._proxys]
-                if tasks is not None and len(tasks) > 0:
-                    loop = asyncio.get_event_loop()
-                    loop.run_until_complete(asyncio.wait(tasks))
+                loop = asyncio.get_event_loop()
+            except RuntimeError as e:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-            finally:
-                self._close_pipeline()
-                self.state = self._PENDING
+            with self._lock:
+
+                assert self.state == self._PENDING
+                self.state = self._FETCHING
+
+                self._open_pipeline()
+                try:
+                    tasks = [p.begin() for p in self._proxys]
+                    if tasks is not None and len(tasks) > 0:
+                        loop = asyncio.get_event_loop()
+                        loop.run_until_complete(asyncio.wait(tasks))
+
+                finally:
+                    self._close_pipeline()
+                    self.state = self._PENDING
+        except Exception as e:
+            print(e)
 
     def run_valid(self):
 
+        # noinspection PyBroadException
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError as e:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        with self._lock:
-            assert self.state == self._PENDING
-            self.state = self._FETCHING
-
+            # 如果没有事件循环 则创建事件循环
             try:
-                self._open_pipeline()
-                if self._valid is None:
-                    self._valid = ProxyValid(self)
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-                self._valid.valid()
-            finally:
-                self._close_pipeline()
-                self.state = self._PENDING
+            with self._lock:
+                assert self.state == self._PENDING
+                self.state = self._FETCHING
+
+                try:
+                    self._open_pipeline()
+                    if self._valid is None:
+                        self._valid = ProxyValid(self)
+                    self._valid.valid()
+                finally:
+                    self._close_pipeline()
+                    self.state = self._PENDING
+        except Exception as e:
+            print(e)
 
     async def process_item(self, item):
         if hasattr(self._pipeline, "process_item"):
@@ -194,11 +206,31 @@ class Manager:
             self._start = False
             self._thread_pool.shutdown()
 
-    def __del__(self):
-        self.end()
+    def random(self):
+
+        if self._lock.acquire(blocking=False):
+            self._open_pipeline()
+            try:
+                loop = asyncio.get_event_loop()
+                task = asyncio.ensure_future(self._pipeline.random())
+                loop.run_until_complete(task)
+                return task.result()
+            finally:
+                self._close_pipeline()
+                self._lock.release()
+
+    async def delete_invalid(self):
+
+        res = self.settings.get("DELETE_INVALID", True)
+        if isinstance(res, bool):
+            if res:
+                if hasattr(self._pipeline, "delete_invalid"):
+                    await self._pipeline.delete_invalid()
+
+    async def update_valid(self):
+        await self._pipeline.update_valid()
 
 
 if __name__ == "__main__":
     maneger = Manager()
-    maneger.start()
-    maneger.end()
+    print(maneger.random())

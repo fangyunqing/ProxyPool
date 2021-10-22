@@ -2,8 +2,19 @@ from collections.abc import MutableMapping
 
 
 class ProxyItem(MutableMapping):
-
-    _fields = ["ip", "port", "location", "isp", "anon_level", "proxy_type", "valid_time", "react"]
+    """
+    ip ip地址
+    port 端口
+    location 代理位置
+    isp 运营商
+    proxy_type 代理类型 http or https
+    anon_level 匿名等级
+    valid 是否验证
+    valid_time 验证时间
+    react 响应时间 如果验证失败 响应时间为 INVALID
+    id 自增序列
+    """
+    _fields = ["ip", "port", "location", "isp", "proxy_type", "anon_level", "valid_time", "react"]
 
     def __init__(self):
         self.data = {}

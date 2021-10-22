@@ -72,3 +72,5 @@ PROXYS = [
         "url": ["http://www.kxdaili.com/dailiip/1/1.html", "http://www.kxdaili.com/dailiip/2/1.html"]
     }
 ]
+
+DELETE_INVALID = True

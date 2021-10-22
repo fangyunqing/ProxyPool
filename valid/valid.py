@@ -43,6 +43,7 @@ class ProxyValid:
     async def _valid_data(self, ip, port, session):
 
         valid_data = None
+        # noinspection PyBroadException
         try:
             sw = StopWatch()
             with sw:
@@ -59,13 +60,10 @@ class ProxyValid:
                           "port": port,
                           "react": sw.diff,
                           "valid_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(sw.end))}
-
-        except (asyncio.exceptions.TimeoutError, ConnectionRefusedError,
-                aiohttp.ClientProxyConnectionError, aiohttp.ClientOSError,
-                aiohttp.ServerDisconnectedError, aiohttp.ClientHttpProxyError):
+        except Exception:
             valid_data = {"ip": ip,
                           "port": port,
-                          "react": "TIMEOUT",
+                          "react": "INVALID",
                           "valid_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))}
         finally:
             if valid_data is not None:
