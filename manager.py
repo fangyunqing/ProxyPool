@@ -61,28 +61,22 @@ class Manager:
                     pass
 
     def _open_pipeline(self):
-
-        tasks = []
-        if hasattr(self._pipeline, "open"):
-            #    tasks.append(self._pipeline.open())
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._pipeline.open())
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self._pipeline.open())
 
     def _close_pipeline(self):
-
-        tasks = []
-        if hasattr(self._pipeline, "close"):
-            tasks.append(self._pipeline.close())
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(asyncio.wait(tasks))
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(self._pipeline.close())
 
     def run_fetch(self):
+
+        print("begin fetch")
 
         # noinspection PyBroadException
         try:
             # 如果没有事件循环 则创建事件循环
             try:
-                loop = asyncio.get_event_loop()
+                asyncio.get_event_loop()
             except RuntimeError as e:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -105,13 +99,17 @@ class Manager:
         except Exception as e:
             print(e)
 
+        print("end fetch")
+
     def run_valid(self):
+
+        print("begin valid")
 
         # noinspection PyBroadException
         try:
             # 如果没有事件循环 则创建事件循环
             try:
-                loop = asyncio.get_event_loop()
+                asyncio.get_event_loop()
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -124,20 +122,20 @@ class Manager:
                     self._open_pipeline()
                     if self._valid is None:
                         self._valid = ProxyValid(self)
-                    self._valid.valid()
+                    self._valid()
                 finally:
                     self._close_pipeline()
                     self.state = self._PENDING
-        except Exception as e:
-            print(e)
+        except Exception as exception:
+            print(exception)
+
+        print("end valid")
 
     async def process_item(self, item):
-        if hasattr(self._pipeline, "process_item"):
-            await self._pipeline.process_item(item)
+        await self._pipeline.process_item(item)
 
     async def process_valid_data(self, valid_data):
-        if hasattr(self._pipeline, "process_valid_data"):
-            await self._pipeline.process_valid_data(valid_data)
+        await self._pipeline.process_valid_data(valid_data)
 
     def headers(self):
         """
@@ -157,13 +155,14 @@ class Manager:
             return headers
 
     async def query(self, page_no, page_size):
-        if hasattr(self._pipeline, "query"):
-            return await self._pipeline.query(page_no, page_size)
+        return await self._pipeline.query(page_no, page_size)
 
     def run(self):
 
-        valid_time = 60 * 60
-        fetch_time = 4 * 60 * 60
+        print("manager run start")
+
+        valid_time = 60
+        fetch_time = 60 * 5
         start_time = time.time()
         next_valid_time = start_time + valid_time
         next_fetch_time = start_time + fetch_time
@@ -173,7 +172,7 @@ class Manager:
             end_time = time.time()
 
             if self._valid_future is None:
-                if next_fetch_time <= end_time:
+                if next_valid_time <= end_time:
                     next_valid_time += valid_time
                     self._valid_future = self._thread_pool.submit(self.run_valid)
             else:
@@ -181,12 +180,14 @@ class Manager:
                     self._valid_future = None
 
             if self._fetch_future is None:
-                if next_valid_time <= end_time:
+                if next_fetch_time <= end_time:
                     next_fetch_time += fetch_time
                     self._fetch_future = self._thread_pool.submit(self.run_fetch)
             else:
                 if self._fetch_future.done():
                     self._fetch_future = None
+
+        print("manager run end")
 
     def start(self):
 
@@ -197,7 +198,7 @@ class Manager:
             self._start = True
             self._thread_pool.submit(self.run)
 
-    def end(self):
+    def stop(self):
 
         if self._start:
             self._start = False
@@ -220,18 +221,24 @@ class Manager:
     async def delete_invalid(self):
 
         res = self.settings.get("DELETE_INVALID", True)
-        if isinstance(res, bool):
-            if res:
-                if hasattr(self._pipeline, "delete_invalid"):
-                    await self._pipeline.delete_invalid()
+        if isinstance(res, bool) and res:
+            await self._pipeline.delete_invalid()
 
     async def update_valid(self):
         await self._pipeline.update_valid()
 
+    async def after_valid(self):
+        await self._pipeline.update_valid()
+
+        res = self.settings.get("DELETE_INVALID", True)
+        if isinstance(res, bool) and res:
+            await self._pipeline.delete_invalid()
+
 
 if __name__ == "__main__":
+    import threading
+    e = threading.Event()
     maneger = Manager()
     maneger.start()
-    maneger.end()
-    maneger.start()
-    maneger.end()
+    e.wait()
+

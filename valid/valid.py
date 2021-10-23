@@ -10,7 +10,10 @@ class ProxyValid:
     def __init__(self, manager):
         self._manager = manager
 
-    def valid(self):
+    def __call__(self, *args, **kwargs):
+        self._valid()
+
+    def _valid(self):
 
         page_size = 100
         page_no = 1
@@ -37,6 +40,7 @@ class ProxyValid:
                     loop.run_until_complete(asyncio.wait(tasks))
 
                 page_no += 1
+            loop.run_until_complete(self._manager.after_valid())
         finally:
             loop.run_until_complete(session.close())
 

@@ -19,7 +19,7 @@ class AbstractPipeline(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    async def process_item(self):
+    async def process_item(self, item):
         """
         处理item 可以保存数据库 redis 文件文件
         """
@@ -68,14 +68,14 @@ class AbstractPipeline(metaclass=ABCMeta):
         pass
 
 
-class MysqlPipeline:
+class MysqlPipeline(AbstractPipeline):
     _insert = "INSERT INTO proxy_pool(ip, port, location, isp, proxy_type, valid_time, valid, anon_level) " \
               "VALUES(%s, %s, %s, %s, %s, %s, 0, %s)"
 
     _select = "SELECT 1 FROM proxy_pool WHERE ip = %s and port = %s"
 
     _update = "UPDATE proxy_pool " \
-              "SET location=%s, isp=%s, proxy_type=%s, valid_time=%s, valid=0, anon_level=%s " \
+              "SET location=%s, isp=%s, proxy_type=%s, valid_time=%s, valid=0, anon_level=%s, react='' " \
               "WHERE ip = %s and port = %s"
 
     _page = "SELECT port, ip FROM proxy_pool " \
@@ -92,7 +92,7 @@ class MysqlPipeline:
               "(SELECT MIN(id) FROM proxy_pool)) AS id) AS t2 " \
               "WHERE t1.id >= t2.id and valid = 1 and react <> 'INVALID'ORDER BY t1.id LIMIT 1"
 
-    _delete_invalid = "DELETE FROM proxy_pool WHERE react = 'INVALID'"
+    _delete_invalid = "DELETE FROM proxy_pool WHERE react = 'INVALID' and valid = 1"
 
     _update_valid = "UPDATE proxy_pool SET valid = 1 WHERE valid = 0"
 
@@ -240,25 +240,21 @@ class MysqlPipeline:
 
     async def delete_invalid(self):
 
-        if self._pool:
-            conn = await self._pool.acquire()
-            try:
-                cursor = await conn.cursor(aiomysql.DictCursor)
-                try:
-                    await cursor.execute(self._delete_invalid)
-                finally:
-                    await cursor.close()
-            finally:
-                await self._pool.release(conn)
+        await self.execute(self._delete_invalid)
 
     async def update_valid(self):
 
+        await self.execute(self._update_valid)
+
+    async def execute(self, sql):
+
         if self._pool:
             conn = await self._pool.acquire()
             try:
                 cursor = await conn.cursor(aiomysql.DictCursor)
                 try:
-                    await cursor.execute(self.update_valid())
+                    await cursor.execute(sql)
+                    await conn.commit()
                 finally:
                     await cursor.close()
             finally:
