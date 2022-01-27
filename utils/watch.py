@@ -4,9 +4,13 @@ import time
 
 class StopWatch:
 
+    """
+        一段程序的执行时间
+    """
+
     def __init__(self):
-        self.begin = None
-        self.end = None
+        self._begin = None
+        self._end = None
         self._time = None
 
         os = platform.system()
@@ -17,11 +21,20 @@ class StopWatch:
 
     @property
     def diff(self):
-        if self.begin and self.end:
-            return self.end - self.begin
+        if self._begin and self._end:
+            return self._end - self._begin
+
+    @property
+    def end(self):
+        return self._end
+
+    @property
+    def begin(self):
+        return self._begin
 
     def __enter__(self):
-        self.begin = self._time()
+        self._begin = self._time()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.end = self._time()
+        self._end = self._time()
+

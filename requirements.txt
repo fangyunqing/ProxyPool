@@ -13,3 +13,8 @@ requests==2.26.0
 typing-extensions==3.10.0.2
 urllib3==1.26.7
 yarl==1.6.3
+
+aiosqlite~=0.17.0
+loguru~=0.5.3
+interval~=1.0.0
+APScheduler~=3.8.1

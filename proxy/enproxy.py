@@ -2,6 +2,7 @@ from proxy.abstractproxy import AbstractProxy
 
 from lxml import etree
 from item.proxyitem import ProxyItem
+from decorator.log_mode import log_mode
 
 
 class EightyNineProxy(AbstractProxy):
@@ -9,6 +10,7 @@ class EightyNineProxy(AbstractProxy):
     def __init__(self, url, manager, baseurl=None):
         super().__init__(url, manager, baseurl)
 
+    @log_mode()
     def _parse(self, text):
 
         selector = etree.HTML(text)
@@ -26,9 +28,4 @@ class EightyNineProxy(AbstractProxy):
             yield self.baseurl + "/" + next_url
 
 
-if __name__ == "__main__":
-    import asyncio
 
-    loop = asyncio.get_event_loop()
-    a = EightyNineProxy(url="https://www.89ip.cn/", manager=None)
-    loop.run_until_complete(a.begin())

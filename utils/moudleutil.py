@@ -3,6 +3,12 @@ import importlib
 
 def get_cls(module_name):
 
+    """
+    加载模块
+    :param module_name:
+    :return:
+    """
+
     try:
         name_list = module_name.split(".")
         name_len = len(name_list)

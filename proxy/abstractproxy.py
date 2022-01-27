@@ -1,17 +1,19 @@
 from abc import ABCMeta, abstractmethod
 
 import aiohttp
-import random
-import settings
 from urllib import parse
 from item.proxyitem import ProxyItem
 from copy import deepcopy
+from utils.watch import StopWatch
+
 
 
 class AbstractProxy(metaclass=ABCMeta):
     """
     代理基类
     """
+
+    _valid_url = "http://www.baidu.com/"
 
     def __init__(self, url, manager, baseurl=None):
 
@@ -52,13 +54,48 @@ class AbstractProxy(metaclass=ABCMeta):
                     if isinstance(p, str):
                         await self._begin(p, session)
                     elif isinstance(p, ProxyItem):
-                        if self._manager:
-                            await self._manager.process_item(p)
+                        # 进行验证
+                        ip = p.get("ip", None)
+                        port = p.get("port", None)
+                        if ip and port:
+                            react, valid_time = await self._valid(ip, port, session)
+                            if react and valid_time and self._manager:
+                                p["react"] = react
+                                p["valid_time"] = valid_time
+                                await self._manager.process_item(p)
+
             finally:
                 response.close()
 
     async def _crawl(self, url, session):
-        return await session.get(url, headers=self._manager.headers())
+        return await session.get(url, headers=self._manager.random_header())
+
+    async def _valid(self, ip, port, session):
+
+        """
+        验证 ip和port
+        :param ip:
+        :param port:
+        :param session:
+        :return:
+        """
+
+        try:
+            sw = StopWatch()
+            with sw:
+                response = await session.request(method="GET",
+                                                 url=self._valid_url,
+                                                 proxy="http://" + ip + ":" + port,
+                                                 ssl=False,
+                                                 timeout=6,
+                                                 cookies=None,
+                                                 headers=self._manager.random_header())
+                response.close()
+        except Exception as e:
+            print("XX：" + repr(e))
+            return None, None
+        else:
+            return sw.diff, sw.end
 
     @abstractmethod
     def _parse(self, text):

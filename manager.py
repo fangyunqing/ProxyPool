@@ -1,47 +1,37 @@
 import settings
-import threading
 from utils import moudleutil
 import asyncio
 import random
 from valid.valid import ProxyValid
-from concurrent.futures import ThreadPoolExecutor
-import time
+from pipeline.pipelines import SqlitePipeline
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime
+from loguru import logger
 
 
 class Manager:
-    _VALIDATING = "VALIDATING"
-    _FETCHING = "FETCHING"
-    _PENDING = "PENDING"
 
     def __init__(self):
-        self.state = self._PENDING
         self.settings = {}
         self._proxys = []
         for key in settings.__dict__:
             if isinstance(key, str) and not key.startswith("__"):
                 self.settings[key] = settings.__dict__[key]
 
-        self._valid = None
-        self._pipeline = None
-        self._thread_pool = None
-        self._valid_future = None
-        self._fetch_future = None
+        self._pipeline = SqlitePipeline()
         self._start = False
-
-        self._init_pipeline()
+        # 测试模式
+        self.test_mode = False
+        # fetch时间  默认86400秒
+        self.fetch_time = 86400
+        # valid时间  默认43200秒
+        self.valid_time = 43200
+        # 任务调度器
+        self.scheduler = None
+        # 初始化代理处理器
         self._init_proxys()
-        self._lock = threading.Lock()
-
-    def _init_pipeline(self):
-        if "PIPELINE" in self.settings:
-            pp = self.settings["PIPELINE"]
-            try:
-                pipeline_info = pp.get("object", None)
-                cls = moudleutil.get_cls(pipeline_info)
-                params = pp.get("params", None)
-                self._pipeline = cls(**params)
-            except (AttributeError, TypeError):
-                pass
+        # 验证器
+        self._valid = None
 
     def _init_proxys(self):
         if "PROXYS" in self.settings:
@@ -60,86 +50,48 @@ class Manager:
                 except TypeError:
                     pass
 
-    def _open_pipeline(self):
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self._pipeline.open())
-
-    def _close_pipeline(self):
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self._pipeline.close())
-
     def run_fetch(self):
 
-        print("begin fetch")
-
-        # noinspection PyBroadException
         try:
-            # 如果没有事件循环 则创建事件循环
             try:
                 asyncio.get_event_loop()
             except RuntimeError as e:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-            with self._lock:
-
-                assert self.state == self._PENDING
-                self.state = self._FETCHING
-
-                self._open_pipeline()
-                try:
-                    tasks = [p.begin() for p in self._proxys]
-                    if tasks is not None and len(tasks) > 0:
-                        loop = asyncio.get_event_loop()
-                        loop.run_until_complete(asyncio.wait(tasks))
-
-                finally:
-                    self._close_pipeline()
-                    self.state = self._PENDING
+            tasks = [p.begin() for p in self._proxys]
+            if tasks is not None and len(tasks) > 0:
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(asyncio.wait(tasks))
         except Exception as e:
             print(e)
 
-        print("end fetch")
-
     def run_valid(self):
 
-        print("begin valid")
-
-        # noinspection PyBroadException
         try:
-            # 如果没有事件循环 则创建事件循环
             try:
                 asyncio.get_event_loop()
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-            with self._lock:
-                assert self.state == self._PENDING
-                self.state = self._FETCHING
-
-                try:
-                    self._open_pipeline()
-                    if self._valid is None:
-                        self._valid = ProxyValid(self)
-                    self._valid()
-                finally:
-                    self._close_pipeline()
-                    self.state = self._PENDING
+            if self._valid is None:
+                self._valid = ProxyValid(self)
+            self._valid()
         except Exception as exception:
             print(exception)
 
-        print("end valid")
-
     async def process_item(self, item):
-        await self._pipeline.process_item(item)
+        logger.debug(str(item))
+        if not self.test_mode:
+            await self._pipeline.process_item(item)
 
     async def process_valid_data(self, valid_data):
         await self._pipeline.process_valid_data(valid_data)
 
-    def headers(self):
+    def random_header(self):
         """
-        移出去
+        随机请求头
         :return:
         """
         uas = self.settings.get("USER_AGENTS", None)
@@ -155,90 +107,46 @@ class Manager:
             return headers
 
     async def query(self, page_no, page_size):
-        return await self._pipeline.query(page_no, page_size)
-
-    def run(self):
-
-        print("manager run start")
-
-        valid_time = 60
-        fetch_time = 60 * 5
-        start_time = time.time()
-        next_valid_time = start_time + valid_time
-        next_fetch_time = start_time + fetch_time
-
-        while self._start:
-            time.sleep(2)
-            end_time = time.time()
-
-            if self._valid_future is None:
-                if next_valid_time <= end_time:
-                    next_valid_time += valid_time
-                    self._valid_future = self._thread_pool.submit(self.run_valid)
-            else:
-                if self._valid_future.done():
-                    self._valid_future = None
-
-            if self._fetch_future is None:
-                if next_fetch_time <= end_time:
-                    next_fetch_time += fetch_time
-                    self._fetch_future = self._thread_pool.submit(self.run_fetch)
-            else:
-                if self._fetch_future.done():
-                    self._fetch_future = None
-
-        print("manager run end")
+        return await self._pipeline.query()
 
     def start(self):
-
         if not self._start:
-            if self._thread_pool is None:
-                self._thread_pool = ThreadPoolExecutor(max_workers=3)
-
+            self.scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+            self.scheduler.add_job(self.run_valid, trigger="interval", seconds=self.valid_time, max_instances=1)
+            self.scheduler.add_job(self.run_fetch,
+                                   trigger="interval",
+                                   seconds=self.fetch_time,
+                                   next_run_time=datetime.now(),
+                                   max_instances=1)
+            self.scheduler.pause_job()
+            self.scheduler.start()
             self._start = True
-            self._thread_pool.submit(self.run)
 
     def stop(self):
-
         if self._start:
-            self._start = False
-            self._thread_pool.shutdown()
-            self._thread_pool = None
+            self.scheduler.shutdown()
+            self.scheduler._start = False
 
-    def random(self):
+    def random(self, count=1):
 
-        if self._lock.acquire(blocking=False):
-            self._open_pipeline()
-            try:
-                loop = asyncio.get_event_loop()
-                task = asyncio.ensure_future(self._pipeline.random())
-                loop.run_until_complete(task)
-                return task.result()
-            finally:
-                self._close_pipeline()
-                self._lock.release()
+        """
+        随机获取count数据
+        :param count:
+        :return:
+        """
 
-    async def delete_invalid(self):
+        loop = asyncio.get_event_loop()
+        task = asyncio.ensure_future(self._pipeline.random(count))
+        loop.run_until_complete(task)
+        return task.result()
 
-        res = self.settings.get("DELETE_INVALID", True)
-        if isinstance(res, bool) and res:
-            await self._pipeline.delete_invalid()
+    async def delete_invalid(self, delete_list):
+        await self._pipeline.delete_invalid(delete_list)
 
-    async def update_valid(self):
-        await self._pipeline.update_valid()
-
-    async def after_valid(self):
-        await self._pipeline.update_valid()
-
-        res = self.settings.get("DELETE_INVALID", True)
-        if isinstance(res, bool) and res:
-            await self._pipeline.delete_invalid()
+    async def update_valid(self, update_list):
+        await self._pipeline.process_valid_data(update_list)
 
 
-if __name__ == "__main__":
-    import threading
-    e = threading.Event()
-    maneger = Manager()
-    maneger.start()
-    e.wait()
+
+
 

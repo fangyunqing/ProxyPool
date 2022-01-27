@@ -15,32 +15,36 @@ class ProxyValid:
 
     def _valid(self):
 
-        page_size = 100
-        page_no = 1
-
         session = aiohttp.ClientSession()
         loop = asyncio.get_event_loop()
         try:
-            while True:
-                task = asyncio.ensure_future(self._manager.query(page_no, page_size))
-                loop.run_until_complete(task)
-                datas = task.result()
-                if datas is None or len(datas) == 0:
-                    break
+            task = asyncio.ensure_future(self._manager.query())
+            loop.run_until_complete(task)
+            datas = task.result()
+            if datas is None or len(datas) == 0:
+                return
 
-                tasks = []
-                for data in datas:
-                    ip = data.get("ip", None)
-                    port = data.get("port", None)
+            tasks = []
+            for data in datas:
+                ip = data.get("ip", None)
+                port = data.get("port", None)
 
-                    if ip and port:
-                        tasks.append(asyncio.ensure_future(self._valid_data(ip, port, session)))
+                if ip and port:
+                    tasks.append(asyncio.ensure_future(self._valid_data(ip, port, session)))
 
-                if len(tasks) > 0:
-                    loop.run_until_complete(asyncio.wait(tasks))
+            if len(tasks) > 0:
+                loop.run_until_complete(asyncio.wait(tasks))
 
-                page_no += 1
-            loop.run_until_complete(self._manager.after_valid())
+            update_list = []
+            delete_list = []
+            for task in tasks:
+                ret = task.result()
+                if ret:
+                    if ret.get("pass", False):
+                        delete_list.append(ret)
+                    else:
+                        update_list.append(ret)
+
         finally:
             loop.run_until_complete(session.close())
 
@@ -57,18 +61,18 @@ class ProxyValid:
                                                  verify_ssl=False,
                                                  timeout=6,
                                                  cookies=None,
-                                                 headers=self._manager.headers())
+                                                 headers=self._manager.random_header())
                 response.close()
 
             valid_data = {"ip": ip,
                           "port": port,
                           "react": sw.diff,
-                          "valid_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(sw.end))}
+                          "valid_time": sw.end,
+                          "pass": True}
         except Exception:
             valid_data = {"ip": ip,
                           "port": port,
-                          "react": "INVALID",
-                          "valid_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))}
+                          "pass": False}
         finally:
             if valid_data is not None:
                 await self._manager.process_valid_data(valid_data)

@@ -64,7 +64,7 @@ PIPELINE = {
 
 PROXYS = [
     {
-        "object": "proxy.89proxy.EightyNineProxy",
+        "object": "proxy.enproxy.EightyNineProxy",
         "url": "https://www.89ip.cn/"
     },
     {
