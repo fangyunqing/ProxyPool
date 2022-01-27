@@ -32,6 +32,8 @@ class Manager:
         self._init_proxys()
         # 验证器
         self._valid = None
+        # 初始化fetch
+        self._init_fetch = True
 
     def _init_proxys(self):
         if "PROXYS" in self.settings:
@@ -62,9 +64,9 @@ class Manager:
             tasks = [p.begin() for p in self._proxys]
             if tasks is not None and len(tasks) > 0:
                 loop = asyncio.get_event_loop()
-                loop.run_until_complete(asyncio.wait(tasks))
+                loop.run_until_complete(asyncio.gather(*tasks))
         except Exception as e:
-            print(e)
+            logger.error("fetch exception:%s" % repr(e))
 
     def run_valid(self):
 
@@ -78,11 +80,10 @@ class Manager:
             if self._valid is None:
                 self._valid = ProxyValid(self)
             self._valid()
-        except Exception as exception:
-            print(exception)
+        except Exception as e:
+            logger.error("fetch exception:%s" % repr(e))
 
     async def process_item(self, item):
-        logger.debug(str(item))
         if not self.test_mode:
             await self._pipeline.process_item(item)
 
@@ -112,13 +113,16 @@ class Manager:
     def start(self):
         if not self._start:
             self.scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
-            self.scheduler.add_job(self.run_valid, trigger="interval", seconds=self.valid_time, max_instances=1)
-            self.scheduler.add_job(self.run_fetch,
+            self.scheduler.add_job(self.run_valid,
                                    trigger="interval",
-                                   seconds=self.fetch_time,
-                                   next_run_time=datetime.now(),
+                                   seconds=self.valid_time,
                                    max_instances=1)
-            self.scheduler.pause_job()
+            fetch_job = self.scheduler.add_job(self.run_fetch,
+                                               trigger="interval",
+                                               seconds=self.fetch_time,
+                                               max_instances=1)
+            if self._init_fetch:
+                fetch_job.modify(next_run_time=datetime.now())
             self.scheduler.start()
             self._start = True
 

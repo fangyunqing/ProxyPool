@@ -33,7 +33,7 @@ class ProxyValid:
                     tasks.append(asyncio.ensure_future(self._valid_data(ip, port, session)))
 
             if len(tasks) > 0:
-                loop.run_until_complete(asyncio.wait(tasks))
+                loop.run_until_complete(asyncio.gather(*tasks))
 
             update_list = []
             delete_list = []

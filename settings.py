@@ -70,6 +70,10 @@ PROXYS = [
     {
         "object": "proxy.kxproxy.KaiXinProxy",
         "url": ["http://www.kxdaili.com/dailiip/1/1.html", "http://www.kxdaili.com/dailiip/2/1.html"]
+    },
+    {
+        "object": "proxy.kuaiproxy.FastProxy",
+        "url": "https://www.kuaidaili.com/free/inha/"
     }
 ]
 
